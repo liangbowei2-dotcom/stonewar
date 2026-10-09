@@ -1,6 +1,6 @@
 // Service worker:讓遊戲離線也能開。
 // 有網路時一律抓最新的檔案並更新快取,沒網路才用快取,所以重新上傳檔案後手機下次開啟就會更新。
-const CACHE = 'stonewar-v1';
+const CACHE = 'stonewar-v3';
 const FILES = [
   './', 'index.html', 'manifest.json',
   'js/art.js', 'js/levels.js', 'js/game.js',

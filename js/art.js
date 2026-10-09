@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const SW = window.SW = window.SW || {};
-  const T = SW.T = 40;
+  const T = SW.T = 24;                    // 和原版一樣:畫面寬 40 格、高 25 格
   const A = SW.art = {};
   const FONT = '"Arial Black", "Microsoft JhengHei", "PingFang TC", sans-serif';
 
@@ -42,19 +42,21 @@
   };
 
   // ---------- 方塊 ----------
+  const U = 40;                             // 方塊以 40 單位的方格設計,再縮放成實際大小 T
+  function scaled(c) { const g = c.getContext('2d'); g.scale(T / U, T / U); return g; }
   function bevel(g, light, dark) {
-    g.fillStyle = light; g.fillRect(0, 0, T, 3); g.fillRect(0, 0, 3, T);
-    g.fillStyle = dark; g.fillRect(0, T - 3, T, 3); g.fillRect(T - 3, 0, 3, T);
+    g.fillStyle = light; g.fillRect(0, 0, U, 3); g.fillRect(0, 0, 3, U);
+    g.fillStyle = dark; g.fillRect(0, U - 3, U, 3); g.fillRect(U - 3, 0, 3, U);
   }
   function speckle(g, r, n, a, b) {
     for (let i = 0; i < n; i++) {
       g.fillStyle = r() < 0.5 ? a : b;
-      g.fillRect(r() * T | 0, r() * T | 0, 2 + r() * 5, 1 + r() * 2);
+      g.fillRect(r() * U | 0, r() * U | 0, 2 + r() * 5, 1 + r() * 2);
     }
   }
   function stoneTile(seed, glyph) {
-    const c = mk(T, T), g = c.getContext('2d'), r = rng(seed);
-    g.fillStyle = '#6f85ab'; g.fillRect(0, 0, T, T);
+    const c = mk(T, T), g = scaled(c), r = rng(seed);
+    g.fillStyle = '#6f85ab'; g.fillRect(0, 0, U, U);
     speckle(g, r, 70, 'rgba(255,255,255,.08)', 'rgba(20,30,70,.12)');
     bevel(g, 'rgba(255,255,255,.24)', 'rgba(15,25,60,.38)');
     if (glyph) {
@@ -72,10 +74,10 @@
     return c;
   }
   function rubbleTile(seed) {
-    const c = mk(T, T), g = c.getContext('2d'), r = rng(seed);
-    g.fillStyle = '#8f8a7c'; g.fillRect(0, 0, T, T);
+    const c = mk(T, T), g = scaled(c), r = rng(seed);
+    g.fillStyle = '#8f8a7c'; g.fillRect(0, 0, U, U);
     for (let i = 0; i < 26; i++) {
-      const x = r() * T, y = r() * T, s = 3 + r() * 5, v = 150 + r() * 70 | 0;
+      const x = r() * U, y = r() * U, s = 3 + r() * 5, v = 150 + r() * 70 | 0;
       g.fillStyle = 'rgb(' + v + ',' + (v - 6) + ',' + (v - 26) + ')';
       g.beginPath(); g.ellipse(x, y, s, s * 0.75, r() * 3, 0, 7); g.fill();
       g.strokeStyle = 'rgba(60,55,45,.5)'; g.lineWidth = 1; g.stroke();
@@ -84,8 +86,8 @@
     return c;
   }
   function goldTile(cracked) {
-    const c = mk(T, T), g = c.getContext('2d');
-    g.fillStyle = '#e0a514'; g.fillRect(0, 0, T, T);
+    const c = mk(T, T), g = scaled(c);
+    g.fillStyle = '#e0a514'; g.fillRect(0, 0, U, U);
     bevel(g, 'rgba(255,245,170,.7)', 'rgba(110,60,0,.55)');
     g.fillStyle = '#7a4700';
     g.fillRect(7, 9, 11, 3); g.fillRect(22, 9, 11, 3);       // 眉
@@ -103,23 +105,30 @@
     return c;
   }
   function grassTile(seed) {
-    const c = mk(T, T), g = c.getContext('2d'), r = rng(seed);
-    g.fillStyle = '#b39d74'; g.fillRect(0, 0, T, T);
+    const c = mk(T, T), g = scaled(c), r = rng(seed);
+    g.fillStyle = '#b39d74'; g.fillRect(0, 0, U, U);
     for (let i = 0; i < 16; i++) {
       const v = 150 + r() * 50 | 0;
       g.fillStyle = 'rgb(' + (v + 20) + ',' + v + ',' + (v - 40) + ')';
-      g.beginPath(); g.ellipse(r() * T, 12 + r() * 28, 4 + r() * 5, 3 + r() * 3, r() * 3, 0, 7); g.fill();
+      g.beginPath(); g.ellipse(r() * U, 12 + r() * 28, 4 + r() * 5, 3 + r() * 3, r() * 3, 0, 7); g.fill();
     }
     bevel(g, 'rgba(255,255,255,.12)', 'rgba(60,40,10,.3)');
-    g.fillStyle = '#4f8f2a'; g.fillRect(0, 0, T, 9);
-    g.fillStyle = '#6fb53a'; g.fillRect(0, 0, T, 4);
+    g.fillStyle = '#4f8f2a'; g.fillRect(0, 0, U, 9);
+    g.fillStyle = '#6fb53a'; g.fillRect(0, 0, U, 4);
     g.fillStyle = '#4f8f2a';
-    for (let x = 0; x < T; x += 5) { g.beginPath(); g.moveTo(x, 8); g.lineTo(x + 2.5, 12 + r() * 5); g.lineTo(x + 5, 8); g.fill(); }
+    for (let x = 0; x < U; x += 5) { g.beginPath(); g.moveTo(x, 8); g.lineTo(x + 2.5, 12 + r() * 5); g.lineTo(x + 5, 8); g.fill(); }
+    return c;
+  }
+  function capTile(seed) {
+    const c = mk(T, T), g = scaled(c), r = rng(seed);
+    g.fillStyle = '#cfc7b4'; g.fillRect(0, 0, U, U);
+    speckle(g, r, 60, 'rgba(255,255,255,.2)', 'rgba(90,80,60,.12)');
+    bevel(g, 'rgba(255,255,255,.55)', 'rgba(80,70,50,.35)');
     return c;
   }
   function brickTile() {
-    const c = mk(T, T), g = c.getContext('2d'), r = rng(77);
-    g.fillStyle = '#c9a36b'; g.fillRect(0, 0, T, T);
+    const c = mk(T, T), g = scaled(c), r = rng(77);
+    g.fillStyle = '#c9a36b'; g.fillRect(0, 0, U, U);
     speckle(g, r, 50, 'rgba(255,240,200,.18)', 'rgba(90,55,10,.15)');
     bevel(g, 'rgba(255,245,215,.5)', 'rgba(80,50,10,.45)');
     g.strokeStyle = 'rgba(95,60,15,.5)'; g.lineWidth = 1.5; g.beginPath();
@@ -130,8 +139,8 @@
   }
   let TILES = null;
   function buildTiles() {
-    TILES = { stone: [], rubble: [], grass: [], gold: [goldTile(false), goldTile(true)], brick: brickTile() };
-    for (let i = 0; i < 10; i++) TILES.stone.push(stoneTile(100 + i * 7, i < 7 ? 0 : i - 6));
+    TILES = { stone: [], rubble: [], grass: [], cap: [capTile(700), capTile(701), capTile(702)], gold: [goldTile(false), goldTile(true)], brick: brickTile() };
+    for (let i = 0; i < 10; i++) TILES.stone.push(stoneTile(100 + i * 7, i < 8 ? 0 : i - 7));
     for (let i = 0; i < 3; i++) { TILES.rubble.push(rubbleTile(300 + i)); TILES.grass.push(grassTile(500 + i)); }
   }
   A.tile = function (b) {
@@ -140,7 +149,8 @@
     if (b.t === 'brick') return TILES.brick;
     if (b.t === 'rubble' || b.hp < 2) return TILES.rubble[b.v % 3];
     if (b.t === 'grass') return TILES.grass[b.v % 3];
-    return TILES.stone[b.v % 10];
+    if (b.t === 'cap') return TILES.cap[b.v % 3];
+    return TILES.stone[b.v % 29 === 0 ? 8 + (b.v >> 5) % 2 : b.v % 8];      // 細格下刻紋磚要少,不然畫面太花
   };
   A.goldTile = function () { if (!TILES) buildTiles(); return TILES.gold[0]; };
 
@@ -425,10 +435,10 @@
 
   A.preview = function (def) {
     if (def._pv) return def._pv;
-    const rows = def.map, h = rows.length, w = Math.max.apply(null, rows.map(function (r) { return r.length; })), S = 6;
+    const rows = def.map, h = rows.length, w = Math.max.apply(null, rows.map(function (r) { return r.length; })), S = 4;
     const c = mk(w * S, h * S), g = c.getContext('2d');
     g.drawImage(A.background(def.theme), 0, 0, 960, 600, 0, 0, w * S, h * S);
-    const col = { '#': '#6f85ab', r: '#b0a890', g: '#5a9a34', G: '#e0a514' };
+    const col = { '#': '#6f85ab', c: '#cfc7b4', r: '#b0a890', g: '#5a9a34', G: '#e0a514' };
     for (let y = 0; y < h; y++) for (let x = 0; x < rows[y].length; x++) {
       const k = col[rows[y][x]]; if (k) { g.fillStyle = k; g.fillRect(x * S, y * S, S, S); }
     }

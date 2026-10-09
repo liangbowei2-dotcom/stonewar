@@ -2,7 +2,8 @@
 (function () {
   'use strict';
   const SW = window.SW, T = SW.T, A = SW.art, WEAPONS = SW.WEAPONS, MENU = SW.MENU, LEVELS = SW.LEVELS;
-  const VW = 960, VH = 600, GRAV = 1400, WALK = 120, JUMP = 520, HW = 11, UH = 36, TURN_TIME = 30;
+  const VW = 960, VH = 600, GRAV = 1400, WALK = 120, JUMP = 580, HW = 11, UH = 36, TURN_TIME = 30;
+  const MAX_FALL = 680;                     // 每幀最多掉不到一格(24px),才不會穿過薄地板
   const ENEMY_HP = 50, ENEMY_DMG = 0.4;      // 敵人數量多，所以血比較少、打人比較不痛
   const cv = document.getElementById('game'), ctx = cv.getContext('2d');
   const params = new URLSearchParams(location.search);
@@ -17,7 +18,8 @@
   function unlock(w) { if (w && save.weapons.indexOf(w) < 0) { save.weapons.push(w); persist(); } }
 
   let scene = 'title', L = null, selIdx = 0, tipIdx = 0, ui = [], paused = false, menuOpen = false, time = 0, scale = 1;
-  const keys = {}, held = {};
+  const keys = {}, held = {}, lastPtr = {};
+  const AIM_R = 195;                        // 在這個半徑內拖曳是瞄準，外面是移動鏡頭
   const CTL = [{ id: 'left', x: 90, y: 536, r: 38 }, { id: 'right', x: 200, y: 536, r: 38 }, { id: 'fire', x: 735, y: 536, r: 42 }, { id: 'jump', x: 870, y: 536, r: 38 }];
 
   // ---------- 音效(WebAudio 合成) ----------
@@ -55,7 +57,7 @@
 
   // ---------- 關卡 ----------
   function hash(x, y) { let h = (x * 374761393 + y * 668265263) >>> 0; h = ((h ^ (h >>> 13)) * 1274126177) >>> 0; return h >>> 8; }
-  const BLOCK = { '#': ['stone', 2], r: ['rubble', 1], g: ['grass', 2], G: ['gold', 4] };
+  const BLOCK = { '#': ['stone', 2], c: ['cap', 2], r: ['rubble', 1], g: ['grass', 2], G: ['gold', 4] };
 
   function loadLevel(idx) {
     const def = LEVELS[idx], rows = def.map, H = rows.length, W = Math.max.apply(null, rows.map(function (r) { return r.length; }));
@@ -63,7 +65,7 @@
       idx: idx, def: def, W: W, H: H, grid: [], units: [], shots: [], worms: [], nails: [], pickups: [], fx: [], texts: [],
       cam: { x: 0, y: 0 }, camBase: { x: 0, y: 0 }, camOff: { x: 0, y: 0 }, focus: null, shake: 0,
       phase: 'intro', introT: 0, active: null, next: null, turnTeam: 1, ptr: [-1, -1], timer: TURN_TIME,
-      settle: 0, resolveT: 0, endT: 0, money: 150, weapon: 'shell', lastFree: 'shell', turns: 0, toast: null, aiming: false, newWeaponT: 0,
+      pan: { x: 0, y: 0 }, settle: 0, resolveT: 0, endT: 0, money: 150, weapon: 'shell', lastFree: 'shell', turns: 0, toast: null, aiming: false, newWeaponT: 0,
       bg: A.background(def.theme)
     };
     for (let y = 0; y < H; y++) {
@@ -74,7 +76,7 @@
         const px = (x + 0.5) * T, py = (y + 1) * T;
         if (ch === 'P' || ch === 'E') {
           const team = ch === 'P' ? 0 : 1;
-          L.units.push({ team: team, x: px, y: py, vx: 0, vy: 0, hp: team ? ENEMY_HP : 100, max: team ? ENEMY_HP : 100, face: team ? -1 : 1, onGround: false, walk: 0, dead: false, gone: false, hurtT: 0, ai: null, aim: { ang: team ? Math.PI + 0.7 : -0.7, pow: 0.5 } });
+          L.units.push({ team: team, x: px, y: py, vx: 0, vy: 0, hp: team ? (def.enemyHp || ENEMY_HP) : 100, max: team ? (def.enemyHp || ENEMY_HP) : 100, face: team ? -1 : 1, onGround: false, walk: 0, dead: false, gone: false, hurtT: 0, ai: null, aim: { ang: team ? Math.PI + 0.7 : -0.7, pow: 0.5 } });
         } else if (ch === 'o') L.pickups.push({ kind: 'pebble', x: px, y: py, vy: 0 });
         else if (ch === 'W') L.pickups.push({ kind: 'weapon', x: px, y: py, vy: 0 });
       }
@@ -103,7 +105,7 @@
   function stepBody(b, dt, move, hw, h) {
     const dx = (b.vx + move * WALK) * dt;
     if (dx) { if (!boxSolid(b.x + dx, b.y, hw, h)) b.x += dx; else b.vx = 0; }
-    b.vy = Math.min(b.vy + GRAV * dt, 1000);
+    b.vy = Math.min(b.vy + GRAV * dt, MAX_FALL);
     const ny = b.y + b.vy * dt;
     if (boxSolid(b.x, ny, hw, h)) {
       if (b.vy > 0) { b.y = Math.floor(ny / T) * T; b.onGround = true; }
@@ -123,12 +125,12 @@
     L.ptr[team] = (L.ptr[team] + 1) % mine.length;
     L.active = mine[L.ptr[team]];
     L.next = other.length ? other[(L.ptr[1 - team] + 1) % other.length] : null;
-    L.phase = 'turn'; L.timer = TURN_TIME; L.turns++; L.aiming = false;
+    L.phase = 'turn'; L.timer = TURN_TIME; L.turns++; L.aiming = false; L.pan.x = L.pan.y = 0;
     L.active.ai = (team === 1 || DEMO) ? { state: 'think', wait: 0.6 + Math.random() * 0.6, moved: 0, weapon: 'shell' } : null;
     menuOpen = false;
     for (const k in held) if (held[k] === 'aim') delete held[k];
   }
-  function toResolve() { L.phase = 'resolve'; L.settle = 0; L.resolveT = 0; L.aiming = false; menuOpen = false; }
+  function toResolve() { L.phase = 'resolve'; L.settle = 0; L.resolveT = 0; L.aiming = false; menuOpen = false; L.pan.x = L.pan.y = 0; }
   function checkEnd() {
     if (L.phase === 'won' || L.phase === 'lost') return true;
     if (!aliveOf(0).length) { L.phase = 'lost'; L.endT = 0; sfx('lose'); return true; }
@@ -159,7 +161,7 @@
   function debris(x, y, color, n) {
     for (let i = 0; i < n; i++) L.fx.push({ type: 'p', x: x, y: y, vx: (Math.random() - 0.5) * 420, vy: -Math.random() * 380, t: 0, dur: 0.5 + Math.random() * 0.5, color: color, size: 3 + Math.random() * 4 });
   }
-  const DEBRIS = { stone: '#6f85ab', rubble: '#b0a890', grass: '#b39d74', gold: '#e0a514', brick: '#c9a36b' };
+  const DEBRIS = { stone: '#6f85ab', cap: '#cfc7b4', rubble: '#b0a890', grass: '#b39d74', gold: '#e0a514', brick: '#c9a36b' };
   function damageBlock(tx, ty, n) {
     if (tx < 0 || tx >= L.W || ty < 0 || ty >= L.H) return;
     const b = L.grid[ty][tx]; if (!b) return;
@@ -265,7 +267,9 @@
   }
   function placeBricks(u) {
     const a = u.aim.ang, tx0 = Math.floor(u.x / T), ty0 = Math.floor((u.y - 1) / T), f = Math.cos(a) >= 0 ? 1 : -1;
-    const cells = Math.sin(a) < -0.85 ? [[tx0 - 1, ty0 - 1], [tx0, ty0 - 1], [tx0 + 1, ty0 - 1]] : [[tx0 + f, ty0], [tx0 + f, ty0 - 1], [tx0 + f, ty0 - 2]];
+    const wx = f > 0 ? Math.ceil((u.x + HW) / T) : Math.floor((u.x - HW) / T) - 1;      // 身體前方第一個完整的格子
+    const ry = Math.floor((u.y - UH) / T) - 1;                                         // 頭頂上方那一列
+    const cells = Math.sin(a) < -0.85 ? [[tx0 - 1, ry], [tx0, ry], [tx0 + 1, ry]] : [[wx, ty0], [wx, ty0 - 1], [wx, ty0 - 2]];
     let n = 0;
     cells.forEach(function (c) {
       const tx = c[0], ty = c[1];
@@ -367,7 +371,7 @@
     return best;
   }
   function aiWalk(u, dir, out, depth) {
-    if (!groundAhead(u, dir, depth || 12)) return;
+    if (!groundAhead(u, dir, depth || 20)) return;
     out.move = dir;
     if (u.onGround && boxSolid(u.x + dir * 6, u.y, HW, UH)) out.jump = true;
   }
@@ -386,11 +390,11 @@
       if (plan.score > 120 && a.moved < 4) {
         a.state = 'move'; a.moveT = 1.0 + Math.random() * 1.2; a.dir = tgt.x >= u.x ? 1 : -1; a.moved++;
       } else {
-        const err = u.team === 0 ? 0.05 : 0.18, r = Math.random();
+        const err = u.team === 0 ? 0.05 : (L.def.enemyErr || 0.18), r = Math.random();
         a.weapon = 'shell';
-        if (L.idx >= 3 && r < 0.3 && lineClear(u, tgt)) {
+        if (L.idx >= 5 && r < 0.25 && lineClear(u, tgt)) {
           a.weapon = 'toucan'; plan.ang = Math.atan2(tgt.y - 18 - (u.y - 24), tgt.x - u.x); plan.pow = 0.6;
-        } else if (L.idx >= 2 && r > 0.75) a.weapon = 'melon';
+        } else if (L.idx >= 3 && r > 0.8) a.weapon = 'melon';
         a.goal = { ang: plan.ang + (Math.random() - 0.5) * 2 * err, pow: clamp(plan.pow * (1 + (Math.random() - 0.5) * 1.2 * err), 0.1, 1) };
         a.state = 'aim'; a.aimT = 0;
       }
@@ -429,7 +433,7 @@
           jump = !!(keys.ArrowUp || keys.KeyW || ctl('jump'));
         }
         if (move) {
-          u.walk += dt * 11;
+          u.walk += dt * 11; L.pan.x = L.pan.y = 0;
           if (!L.aiming && u.face !== move) { u.face = move; if ((Math.cos(u.aim.ang) >= 0 ? 1 : -1) !== move) u.aim.ang = Math.PI - u.aim.ang; }
         }
         if (jump && u.onGround) { u.vy = -JUMP; u.onGround = false; sfx('jump'); }
@@ -441,7 +445,7 @@
     for (let i = L.pickups.length - 1; i >= 0; i--) {
       const p = L.pickups[i];
       if (p.vy < 0 || !solidAt(p.x, p.y + 1)) {
-        p.vy = Math.min(p.vy + GRAV * dt, 900); p.y += p.vy * dt;
+        p.vy = Math.min(p.vy + GRAV * dt, MAX_FALL); p.y += p.vy * dt;
         if (p.vy > 0 && solidAt(p.x, p.y)) { p.y = Math.floor(p.y / T) * T; p.vy = 0; }
       }
       if (p.y > L.H * T + 100 && p.kind === 'pebble') { L.pickups.splice(i, 1); continue; }
@@ -455,7 +459,7 @@
     for (let i = L.nails.length - 1; i >= 0; i--) {
       const n = L.nails[i]; n.t += dt;
       if (n.vy < 0 || !solidAt(n.x, n.y + 1)) {
-        n.vy = Math.min(n.vy + GRAV * dt, 900); n.y += n.vy * dt;
+        n.vy = Math.min(n.vy + GRAV * dt, MAX_FALL); n.y += n.vy * dt;
         if (n.vy > 0 && solidAt(n.x, n.y)) { n.y = Math.floor(n.y / T) * T; n.vy = 0; }
       }
       if (n.y > L.H * T + 100) { L.nails.splice(i, 1); continue; }
@@ -523,7 +527,9 @@
     } else {
       const u = L.active;
       if (L.phase === 'turn' && u) {
-        tgt = camFor({ x: u.x, y: u.y - 20 });
+        const home = camFor({ x: u.x, y: u.y - 20 });
+        tgt = { x: clamp(home.x + L.pan.x, 0, Math.max(0, L.W * T - VW)), y: clamp(home.y + L.pan.y, 0, Math.max(0, L.H * T - VH)) };
+        L.pan.x = tgt.x - home.x; L.pan.y = tgt.y - home.y;        // 不讓拖曳量累積到地圖外
         if (L.aiming || (u.ai && u.ai.state === 'aim')) off = { x: Math.cos(u.aim.ang) * u.aim.pow * 170, y: Math.sin(u.aim.ang) * u.aim.pow * 80 };
       } else if (L.focus) tgt = camFor(L.focus);
       if (tgt) {
@@ -535,7 +541,7 @@
     L.camOff.x += (off.x - L.camOff.x) * k2; L.camOff.y += (off.y - L.camOff.y) * k2;
     let cx = L.camBase.x + L.camOff.x, cy = L.camBase.y + L.camOff.y;
     const a = L.active;
-    if (L.phase === 'turn' && a) {          // 瞄準時鏡頭會往前探，但不能把自己的角色推出畫面
+    if (L.phase === 'turn' && a && !L.pan.x && !L.pan.y) {          // 瞄準時鏡頭會往前探，但不能把自己的角色推出畫面
       cx = clamp(cx, a.x - (VW - 150), a.x - 150); cy = clamp(cy, a.y - (VH - 140), a.y - 170);
     }
     L.cam.x = clamp(cx, 0, Math.max(0, L.W * T - VW));
@@ -649,7 +655,7 @@
     if (act && !act.dead) {
       const ax = act.x, ay = act.y - 24;
       if (!act.ai) {
-        if (L.aiming) { ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ax, ay, 195, 0, 7); ctx.fill(); ctx.stroke(); }
+        if (L.aiming) { ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ax, ay, AIM_R, 0, 7); ctx.fill(); ctx.stroke(); }
         drawArrow(ax, ay, act.aim.ang, 50 + act.aim.pow * 110, false);
       } else if (act.ai.state === 'aim') drawArrow(ax, ay, act.aim.ang, 50 + act.aim.pow * 110, act.team === 1);
     }
@@ -717,7 +723,7 @@
       if (noFoes) hintBox(['撿起新武器就過關！'], sx + 40, sy - 110);
       else if (L.newWeaponT > 0) hintBox(['獲得新武器！', '點左上角的圖示選擇武器'], 100, 100);
       else if (L.def.tutorial) {
-        if (L.turns === 1) hintBox(['在畫面上拖曳來瞄準，', '拉得越遠力道越大。', '按右下的發射鍵(或空白鍵)開火'], sx + 60, sy - 120);
+        if (L.turns === 1) hintBox(['在角色周圍拖曳來瞄準，', '拉得越遠力道越大。', '在更遠的地方拖曳可以移動鏡頭。', '按右下的發射鍵(或空白鍵)開火'], sx + 60, sy - 150);
         else if (L.turns === 3) hintBox(['撿石頭可以用來買', '食物和特殊武器'], sx + 60, sy - 110);
         else if (L.turns === 5) hintBox(['消滅所有敵人！'], sx + 60, sy - 100);
       }
@@ -737,7 +743,7 @@
   }
   function drawTitle() {
     ctx.drawImage(A.background('beach'), -200, -10);
-    for (let x = 0; x < VW; x += T) { ctx.drawImage(A.tile({ t: 'grass', hp: 2, v: x / T }), x, 480); ctx.drawImage(A.tile({ t: 'stone', hp: 2, v: x / T * 7 }), x, 520); ctx.drawImage(A.tile({ t: 'stone', hp: 2, v: x / T * 3 + 1 }), x, 560); }
+    for (let x = 0; x < VW; x += T) for (let y = 480, k = 0; y < VH; y += T, k++) ctx.drawImage(A.tile({ t: k ? 'stone' : 'grass', hp: 2, v: x / T * (3 + k) + k }), x, y, T + 0.6, T + 0.6);
     const bob = Math.sin(time * 3) * 2;
     ctx.save(); ctx.translate(250, 480); ctx.scale(2.4, 2.4); A.unit(ctx, { x: 0, y: 0, team: 0, face: 1, walk: 0, dead: false, hurtT: 0, aim: { ang: -0.6 + bob * 0.03, pow: 1 } }, 'shell'); ctx.restore();
     ctx.save(); ctx.translate(710, 480); ctx.scale(2.4, 2.4); A.unit(ctx, { x: 0, y: 0, team: 1, face: -1, walk: 0, dead: false, hurtT: 0, aim: { ang: Math.PI + 0.6 - bob * 0.03, pow: 1 } }, 'melon'); ctx.restore();
@@ -780,7 +786,7 @@
     const won = L.phase === 'won';
     A.panel(ctx, VW, VH);
     A.text(ctx, won ? 'You win' : 'You lose', VW / 2, 90, 44, '#fff', 'center');
-    for (let i = 0; i < 9; i++) { ctx.drawImage(A.tile({ t: 'grass', hp: 2, v: i }), 300 + i * T, 330); }
+    for (let i = 0; i < 15; i++) { ctx.drawImage(A.tile({ t: 'grass', hp: 2, v: i }), 300 + i * T, 330); }
     const a = { x: 430, y: 330, team: won ? 0 : 1, face: 1, walk: Math.sin(time * 6) > 0 ? 1 : 0, dead: false, hurtT: 0, aim: { ang: -1.2, pow: 1 } };
     const b = { x: 540, y: 330, team: won ? 1 : 0, face: -1, walk: 0, dead: true, hurtT: 0, aim: { ang: 0, pow: 0 } };
     ctx.save(); ctx.translate(a.x, a.y - Math.abs(Math.sin(time * 6)) * 10); ctx.scale(1.8, 1.8); a.x = 0; a.y = 0; A.unit(ctx, a, null); ctx.restore();
@@ -822,7 +828,9 @@
     for (const c of CTL) {
       if (Math.hypot(p.x - c.x, p.y - c.y) <= c.r + 6) { if (c.id === 'fire') tryFire(); else held[id] = c.id; return; }
     }
-    held[id] = 'aim'; L.aiming = true; aimAt(p);
+    const u = L.active;
+    if (Math.hypot(p.x - (u.x - L.cam.x), p.y - (u.y - 24 - L.cam.y)) > AIM_R) { held[id] = 'pan'; lastPtr[id] = p; return; }
+    held[id] = 'aim'; L.aiming = true; L.pan.x = L.pan.y = 0; aimAt(p);
   }
   function release(e) { if (held[e.pointerId] === 'aim' && L) L.aiming = false; delete held[e.pointerId]; }
   cv.addEventListener('pointerdown', function (e) {
@@ -830,7 +838,14 @@
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* 舊瀏覽器沒有 pointer capture */ }
     down(e.pointerId, vpos(e));
   });
-  cv.addEventListener('pointermove', function (e) { if (held[e.pointerId] === 'aim' && L) aimAt(vpos(e)); });
+  cv.addEventListener('pointermove', function (e) {
+    if (!L) return;
+    if (held[e.pointerId] === 'aim') aimAt(vpos(e));
+    else if (held[e.pointerId] === 'pan') {
+      const p = vpos(e), q = lastPtr[e.pointerId];
+      L.pan.x -= p.x - q.x; L.pan.y -= p.y - q.y; lastPtr[e.pointerId] = p;
+    }
+  });
   cv.addEventListener('pointerup', release);
   cv.addEventListener('pointercancel', release);
   cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
