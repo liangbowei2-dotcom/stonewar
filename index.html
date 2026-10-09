@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Stone Wars 石器戰爭</title>
+<!-- 讓手機「加入主畫面」後像 App 一樣全螢幕開啟 -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="石器戰爭">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #game {
+    width: min(100vw, 160vh); height: min(62.5vw, 100vh);
+    width: min(100vw, 160dvh); height: min(62.5vw, 100dvh);
+    display: block; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: crosshair;
+  }
+  /* 手機直放時蓋住畫面,請玩家轉橫(iPhone 沒辦法用程式鎖定方向) */
+  #rotate {
+    display: none; position: fixed; inset: 0; z-index: 10; background: #1b1b1d; color: #fff;
+    flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    font: bold 22px "Microsoft JhengHei", "PingFang TC", sans-serif;
+  }
+  #rotate .phone { width: 64px; height: 110px; border: 5px solid #f2c230; border-radius: 12px; margin-bottom: 28px; animation: turn 2s ease-in-out infinite; }
+  @keyframes turn { 0%, 25% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+  @media (orientation: portrait) and (max-width: 700px) { #rotate { display: flex; } }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="600"></canvas>
+<div id="rotate"><div class="phone"></div>請把手機轉成橫向</div>
+<script src="js/art.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/game.js"></script>
+<script>
+  // 離線快取只在 http(s) 下可用,直接雙擊開檔案(file://)時略過
+  if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+    navigator.serviceWorker.register('sw.js').catch(function () { /* 註冊失敗不影響遊戲 */ });
+  }
+</script>
+</body>
+</html>
